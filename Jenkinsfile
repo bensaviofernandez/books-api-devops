@@ -125,38 +125,48 @@ EOF
     stage('Deploy (Staging)') {
       steps {
         sh '''
+          # 1) Create a staging compose file
           cat > docker-compose.staging.yml << EOF
-version: '3.8'
-services:
-  books-api:
-    image: ${REGISTRY}:${IMAGE_TAG}
-    ports:
-      - "4000:5000"
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:5000/health || exit 1"]
-      interval: 10s
-      retries: 5
-EOF
-          # Build & start in detached mode
+          version: '3.8'
+          services:
+          books-api:
+          image: ${REGISTRY}:${IMAGE_TAG}
+          ports:
+          - "4000:5000"
+          healthcheck:
+          test: ["CMD", "curl", "-f", "http://localhost:5000/health || exit 1"]
+          interval: 10s
+          retries: 5
+          EOF
+
+          # 2) Start staging (detached + rebuild)
           docker-compose -f docker-compose.staging.yml up -d --build
-          # Wait for healthy status
-          until docker inspect --format='{{.State.Health.Status}}' books-api | grep -q healthy; do
-            echo "Waiting for books-api to become healthy…"
+
+          # 3) Grab the container ID for the books-api service
+          CID=$(docker-compose -f docker-compose.staging.yml ps -q books-api)
+          if [ -z "$CID" ]; then
+            echo "❌ Could not find the books-api container"
+            exit 1
+          fi
+
+          # 4) Wait until it's healthy
+          until [ "$(docker inspect -f '{{.State.Health.Status}}' $CID)" = "healthy" ]; do
+            echo "Waiting for $CID to become healthy…"
             sleep 5
           done
+
           echo "✅ Staging deployment is healthy on port 4000"
         '''
       }
       post {
-        success {
-          echo "Deploy (Staging) succeeded"
-        }
+        success { echo "Deploy (Staging) succeeded" }
         failure {
-          echo "Deploy (Staging) failed — dumping logs"
+          echo "❌ Deploy (Staging) failed — dumping logs"
           sh 'docker-compose -f docker-compose.staging.yml logs'
         }
       }
     }
+
     
     stage('Monitoring') {
       steps {
