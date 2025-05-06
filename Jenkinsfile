@@ -122,50 +122,43 @@ EOF
       }
     }
 
-    stage('Deploy (Staging)') {
-      steps {
-        sh '''
-          # 1) Create a staging compose file
-          cat > docker-compose.staging.yml << EOF
-          version: '3.8'
-          services:
-          books-api:
+stage('Deploy (Staging)') {
+  steps {
+    sh '''
+      cat > docker-compose.staging.yml <<-EOF
+      version: '3.8'
+      services:
+        books-api:
           image: ${REGISTRY}:${IMAGE_TAG}
           ports:
-          - "4000:5000"
+            - "4000:5000"
           healthcheck:
-          test: ["CMD", "curl", "-f", "http://localhost:5000/health || exit 1"]
-          interval: 10s
-          retries: 5
-          EOF
+            test: ["CMD", "curl", "-f", "http://localhost:5000/health || exit 1"]
+            interval: 10s
+            retries: 5
+      EOF
 
-          # 2) Start staging (detached + rebuild)
-          docker-compose -f docker-compose.staging.yml up -d --build
+      # Build & start the staging service
+      docker-compose -f docker-compose.staging.yml up -d --build
 
-          # 3) Grab the container ID for the books-api service
-          CID=$(docker-compose -f docker-compose.staging.yml ps -q books-api)
-          if [ -z "$CID" ]; then
-            echo "❌ Could not find the books-api container"
-            exit 1
-          fi
+      # Grab the container ID and wait for healthy state
+      CID=$(docker-compose -f docker-compose.staging.yml ps -q books-api)
+      until [ "$(docker inspect -f '{{.State.Health.Status}}' $CID)" = "healthy" ]; do
+        echo "Waiting for $CID to become healthy…"
+        sleep 5
+      done
 
-          # 4) Wait until it's healthy
-          until [ "$(docker inspect -f '{{.State.Health.Status}}' $CID)" = "healthy" ]; do
-            echo "Waiting for $CID to become healthy…"
-            sleep 5
-          done
-
-          echo "✅ Staging deployment is healthy on port 4000"
-        '''
-      }
-      post {
-        success { echo "Deploy (Staging) succeeded" }
-        failure {
-          echo "❌ Deploy (Staging) failed — dumping logs"
-          sh 'docker-compose -f docker-compose.staging.yml logs'
-        }
-      }
+      echo "✅ Staging deployment is healthy on port 4000"
+    '''
+  }
+  post {
+    success { echo "Deploy (Staging) succeeded" }
+    failure {
+      echo "Deploy (Staging) failed — dumping logs"
+      sh 'docker-compose -f docker-compose.staging.yml logs'
     }
+  }
+}
 
     
     stage('Monitoring') {
