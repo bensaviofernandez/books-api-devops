@@ -122,39 +122,44 @@ EOF
       }
     }
 
-     stage('Deploy (Staging)') {
-       steps {
-         sh '''
--cat > docker-compose.staging.yml <<EOF
-+cat > docker-compose.staging.yml <<EOF
- version: '3.8'
- services:
-   books-api:
-     image: ${REGISTRY}:${IMAGE_TAG}
-     ports:
-       - "4000:5000"
--    healthcheck:
--      test: ["CMD", "curl", "-f", "http://localhost:5000/health || exit 1"]
-+    healthcheck:
-+      test: ["CMD-SHELL", "curl -f http://localhost:5000/books || exit 1"]
-     interval: 10s
-     retries: 5
- EOF
+    stage('Deploy (Staging)') {
+      steps {
+        sh '''
+          cat > docker-compose.staging.yml <<EOF
+version: '3.8'
+services:
+  books-api:
+    image: ${REGISTRY}:${IMAGE_TAG}
+    ports:
+      - "4000:5000"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:5000/books || exit 1"]
+      interval: 10s
+      retries: 5
+EOF
 
- # Build & start the staging service
- docker-compose -f docker-compose.staging.yml up -d --build
-@@
-         '''
-       }
-       post {
-         success { echo "Deploy (Staging) succeeded" }
-         failure {
-           echo "Deploy (Staging) failed — dumping logs"
-           sh 'docker-compose -f docker-compose.staging.yml logs'
-         }
-       }
-     }
+          # Build & start the staging service
+          docker-compose -f docker-compose.staging.yml up -d --build
 
+          # Grab the container ID and wait for healthy state
+          CID=$(docker-compose -f docker-compose.staging.yml ps -q books-api)
+          until [ "$(docker inspect -f '{{.State.Health.Status}}' $CID)" = "healthy" ]; do
+            echo "Waiting for $CID to become healthy…"
+            sleep 5
+          done
+
+          echo "✅ Staging deployment is healthy on port 4000"
+        '''
+      }
+      post {
+        success { echo "Deploy (Staging) succeeded" }
+        failure {
+          echo "Deploy (Staging) failed — dumping logs"
+          sh 'docker-compose -f docker-compose.staging.yml logs'
+        }
+      }
+    }
+    
     stage('Monitoring') {
       steps {
         sh '''
@@ -176,7 +181,7 @@ EOF
   }
 
   post { 
-    always  { sh 'docker system prune -af' }
+    always { sh 'docker system prune -af' }
     success { echo "Pipeline completed successfully!" }
     failure { echo "Pipeline failed!" }
   }
