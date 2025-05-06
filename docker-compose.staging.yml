@@ -1,0 +1,14 @@
+version: '3.8'
+
+services:
+  books-api:
+    image: "${REGISTRY}:${IMAGE_TAG}"
+    ports:
+      - "4000:5000"
+    environment:
+      # if your app needs any ENV vars, list them here
+      - FLASK_ENV=production
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/health || exit 1"]
+      interval: 10s
+      retries: 5

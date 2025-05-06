@@ -61,7 +61,6 @@ EOF
       steps {
         script {
           def image = "${env.REGISTRY}:${env.IMAGE_TAG}"
-          // run Trivy and capture its exit code
           def trivyStatus = sh(
             script: """
               docker run --rm \\
@@ -86,9 +85,6 @@ EOF
       }
     }
 
-
-
-    
     stage('Integration') {
       steps {
         sh '''
@@ -125,28 +121,61 @@ EOF
         }
       }
     }
+
+    stage('Deploy (Staging)') {
+      steps {
+        sh '''
+          cat > docker-compose.staging.yml << EOF
+version: '3.8'
+services:
+  books-api:
+    image: ${REGISTRY}:${IMAGE_TAG}
+    ports:
+      - "4000:5000"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/health || exit 1"]
+      interval: 10s
+      retries: 5
+EOF
+          # Build & start in detached mode
+          docker-compose -f docker-compose.staging.yml up -d --build
+          # Wait for healthy status
+          until docker inspect --format='{{.State.Health.Status}}' books-api | grep -q healthy; do
+            echo "Waiting for books-api to become healthy…"
+            sleep 5
+          done
+          echo "✅ Staging deployment is healthy on port 4000"
+        '''
+      }
+      post {
+        success {
+          echo "Deploy (Staging) succeeded"
+        }
+        failure {
+          echo "Deploy (Staging) failed — dumping logs"
+          sh 'docker-compose -f docker-compose.staging.yml logs'
+        }
+      }
+    }
     
     stage('Monitoring') {
       steps {
-        // generate the Prometheus config
         sh '''
           cat > prometheus.yml << EOF
-    global:
-      scrape_interval: 15s
+global:
+  scrape_interval: 15s
 
-    scrape_configs:
-      - job_name: 'books-api'
-        static_configs:
-          - targets: ['localhost:5000']
-    EOF
+scrape_configs:
+  - job_name: 'books-api'
+    static_configs:
+      - targets: ['localhost:5000']
+EOF
           echo "Monitoring configuration prepared for Prometheus"
           cat prometheus.yml
         '''
-        // now archive it as a Jenkins pipeline step
         archiveArtifacts artifacts: 'prometheus.yml', fingerprint: true
       }
     }
-
   }
 
   post { 
