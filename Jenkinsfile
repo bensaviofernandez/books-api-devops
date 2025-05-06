@@ -61,8 +61,8 @@ EOF
       steps {
         script {
           withDockerContainer('docker:24.0.9-cli') {
+            // Scan the locally-built image instead of pulling from GHCR
             def image = "${env.REGISTRY}:${env.IMAGE_TAG}"
-            sh "docker pull ${image}"
             sh """
               docker run --rm \\
                 -v /var/run/docker.sock:/var/run/docker.sock \\
@@ -81,6 +81,7 @@ EOF
         }
       }
     }
+
     
     stage('Integration') {
       steps {
