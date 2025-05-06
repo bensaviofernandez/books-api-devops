@@ -28,16 +28,28 @@ def get_all_books():
 
 @app.route('/books/<int:book_id>', methods=['GET'])
 def get_book_by_id(book_id):
-    db_path = os.path.join('db', 'books.db')    
-    conn = sqlite3.connect(db_path)
-    conn.row_factory = dict_factory
-    cur = conn.cursor()
-    book = cur.execute('SELECT * FROM books WHERE id=?;', [book_id]).fetchone()
-    
-    if book:
-        return jsonify(book)
-    else:
-        return jsonify({"error": "Book not found"}), 404
+    db_path = os.path.join('db', 'books.db')
+    print(f"Looking for book with ID {book_id}, DB path: {db_path}")
+    try:
+        conn = sqlite3.connect(db_path)
+        conn.row_factory = dict_factory
+        cur = conn.cursor()
+        
+        # First check if the database has any records
+        all_count = cur.execute('SELECT COUNT(*) as count FROM books;').fetchone()
+        print(f"Total books in database: {all_count['count']}")
+        
+        # Now try to get the specific book
+        book = cur.execute('SELECT * FROM books WHERE id=?;', [book_id]).fetchone()
+        print(f"Query result: {book}")
+        
+        if book:
+            return jsonify(book)
+        else:
+            return jsonify({"error": f"Book with ID {book_id} not found"}), 404
+    except Exception as e:
+        print(f"Database error: {str(e)}")
+        return jsonify({"error": f"Database error: {str(e)}"}), 500
 
 @app.route('/books', methods=['POST'])
 def create_book():
