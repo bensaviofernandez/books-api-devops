@@ -60,26 +60,22 @@ EOF
     stage('Security') {
       steps {
         script {
-          // use the same Docker wrapper so we get docker.sock access
-          withDockerContainer('docker:24.0.9-cli') {
-            def image = "${env.IMAGE_REPO}:${env.IMAGE_TAG}"
-            // run Trivy and capture its exit code
-            def trivyStatus = sh(
-              script: """
-                docker run --rm \\
-                  -v /var/run/docker.sock:/var/run/docker.sock \\
-                  aquasec/trivy:latest image \\
-                    --exit-code 1 \\
-                    --severity HIGH,CRITICAL \\
-                    --ignore-unfixed \\
-                    ${image}
-              """,
-              returnStatus: true
-            )
-            if (trivyStatus != 0) {
-              // mark the build as unstable rather than failed
-              unstable("⚠️ HIGH/CRITICAL vulnerabilities detected by Trivy")
-            }
+          def image = "${env.REGISTRY}:${env.IMAGE_TAG}"
+          // run Trivy and capture its exit code
+          def trivyStatus = sh(
+            script: """
+              docker run --rm \\
+                -v /var/run/docker.sock:/var/run/docker.sock \\
+                aquasec/trivy:latest image \\
+                  --exit-code 1 \\
+                  --severity HIGH,CRITICAL \\
+                  --ignore-unfixed \\
+                  ${image}
+            """,
+            returnStatus: true
+          )
+          if (trivyStatus != 0) {
+            unstable("⚠️ HIGH/CRITICAL vulnerabilities detected by Trivy")
           }
         }
       }
@@ -89,6 +85,7 @@ EOF
         }
       }
     }
+
 
 
     
