@@ -80,30 +80,34 @@ EOF
     }
     
     stage('Security') {
-      agent { label 'docker' }   // ensure this agent can run Docker
       steps {
         script {
-          def img = "ghcr.io/your-org/books-api:${env.BUILD_NUMBER}"
-          sh "docker pull ${img}"
+          // Use Trivy via Docker CLI image
+          withDockerContainer('docker:24.0.9-cli') {
+            // Ensure we scan the exact image built earlier
+            def imageTag = "ghcr.io/your-org/books-api:${env.BUILD_NUMBER}"
+            sh "docker pull ${imageTag}"
 
-          // Run Trivy in a disposable container
-          sh """
-            docker run --rm \\
-              -v /var/run/docker.sock:/var/run/docker.sock \\
-              aquasec/trivy:latest image \\
-                --exit-code 1 \\
-                --severity HIGH,CRITICAL \\
-                --ignore-unfixed \\
-                ${img}
-          """
+            // Run Trivy scan
+            sh """
+              docker run --rm \\
+                -v /var/run/docker.sock:/var/run/docker.sock \\
+                aquasec/trivy:latest image \\
+                  --exit-code 1 \\
+                  --severity HIGH,CRITICAL \\
+                  --ignore-unfixed \\
+                  ${imageTag}
+            """
+          }
         }
       }
       post {
         unstable {
-          echo '⚠️ Found HIGH/CRITICAL issues—pipeline marked UNSTABLE for triage.'
+          echo '⚠️ HIGH/CRITICAL vulnerabilities detected — marking build UNSTABLE for triage.'
         }
       }
     }
+
 
     
     stage('Integration') {
