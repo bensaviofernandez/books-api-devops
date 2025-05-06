@@ -126,39 +126,42 @@ EOF
       steps {
         sh '''
           cat > docker-compose.staging.yml <<EOF
-version: '3.8'
-services:
-  books-api:
-    image: ${REGISTRY}:${IMAGE_TAG}
-    ports:
-      - "4000:5000"
-    healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:5000/books || exit 1"]
-      interval: 10s
-      retries: 5
-EOF
+    version: '3.8'
+    services:
+      books-api:
+        image: ${REGISTRY}:${IMAGE_TAG}
+        ports:
+          - "4000:5000"
+    EOF
 
-          # Build & start the staging service
-          docker-compose -f docker-compose.staging.yml up -d --build
+          # bring up the service
+          docker-compose -f docker-compose.staging.yml up -d
 
-          # Grab the container ID and wait for healthy state
-          CID=$(docker-compose -f docker-compose.staging.yml ps -q books-api)
-          until [ "$(docker inspect -f '{{.State.Health.Status}}' $CID)" = "healthy" ]; do
-            echo "Waiting for $CID to become healthy…"
-            sleep 5
-          done
+          # wait a few seconds for Flask to start
+          echo "Waiting 15s for the API to become ready…"
+          sleep 15
 
-          echo "✅ Staging deployment is healthy on port 4000"
+          # verify via host port
+          if curl -f http://localhost:4000/books; then
+            echo "✅ Staging is live on http://localhost:4000/books"
+          else
+            echo "❌ Staging failed to respond on port 4000"
+            docker-compose -f docker-compose.staging.yml logs
+            exit 1
+          fi
         '''
       }
       post {
-        success { echo "Deploy (Staging) succeeded" }
+        success {
+          echo "🌟 Deploy (Staging) succeeded!"
+        }
         failure {
-          echo "Deploy (Staging) failed — dumping logs"
-          sh 'docker-compose -f docker-compose.staging.yml logs'
+          echo "💥 Deploy (Staging) failed!"
         }
       }
     }
+
+
     
     stage('Monitoring') {
       steps {
