@@ -131,21 +131,25 @@ EOF
     
     stage('Monitoring') {
       steps {
+        // generate the Prometheus config
         sh '''
           cat > prometheus.yml << EOF
-global:
-  scrape_interval: 15s
+    global:
+      scrape_interval: 15s
 
-scrape_configs:
-  - job_name: 'books-api'
-    static_configs:
-      - targets: ['localhost:5000']
-EOF
-          archiveArtifacts artifacts: 'prometheus.yml', fingerprint: true
+    scrape_configs:
+      - job_name: 'books-api'
+        static_configs:
+          - targets: ['localhost:5000']
+    EOF
+          echo "Monitoring configuration prepared for Prometheus"
+          cat prometheus.yml
         '''
+        // now archive it as a Jenkins pipeline step
+        archiveArtifacts artifacts: 'prometheus.yml', fingerprint: true
       }
     }
-  }
+
 
   post { 
     always { sh 'docker system prune -af' }
