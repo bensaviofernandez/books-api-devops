@@ -8,54 +8,40 @@ pipeline {
 
   environment {
     GH_USER    = 'bensaviofernandez'
-    IMAGE_REPO = "ghcr.io/${GH_USER}/books-api"
+    REGISTRY   = "ghcr.io/${GH_USER}/books-api"
     IMAGE_TAG  = "${env.BUILD_NUMBER}"
   }
 
   stages {
     stage('Build') {
       steps {
-        sh 'docker build -t $IMAGE_REPO:$IMAGE_TAG .'
+        sh 'docker build -t $REGISTRY:$IMAGE_TAG .'
       }
     }
     
     stage('Test') {
       steps {
-        // Create a test container that includes pytest
         sh '''
-          # Create a Dockerfile.test that extends your app image and adds testing dependencies
           cat > Dockerfile.test << EOF
-FROM $IMAGE_REPO:$IMAGE_TAG
+FROM $REGISTRY:$IMAGE_TAG
 RUN pip install pytest pytest-cov
 WORKDIR /app
 EOF
-          
-          # Build the test image
-          docker build -t $IMAGE_REPO:test-$IMAGE_TAG -f Dockerfile.test .
-          
-          # Run tests and generate reports
-          docker run --name books-api-test $IMAGE_REPO:test-$IMAGE_TAG pytest -v --junitxml=test-results.xml --cov=app --cov-report=xml
-          
-          # Copy test results from the container
+          docker build -t $REGISTRY:test-$IMAGE_TAG -f Dockerfile.test .
+          docker run --name books-api-test $REGISTRY:test-$IMAGE_TAG \
+            pytest -v --junitxml=test-results.xml --cov=app --cov-report=xml
           docker cp books-api-test:/app/test-results.xml .
           docker cp books-api-test:/app/coverage.xml .
-          
-          # Clean up the test container
           docker rm books-api-test
         '''
-        
-        // Archive the test results
         junit 'test-results.xml'
-        
-        // Optional: Print a summary of test results
-        sh 'cat test-results.xml | grep -A1 testcase'
+        sh 'grep -A1 testcase test-results.xml'
       }
     }
     
     stage('Code Quality') {
       steps {
         sh '''
-          # Run SonarQube scan using Docker
           docker run --rm \
             -v "${WORKSPACE}:/usr/src" \
             sonarsource/sonar-scanner-cli:latest \
@@ -64,16 +50,8 @@ EOF
             -Dsonar.host.url=http://host.docker.internal:9000 \
             -Dsonar.login=sqp_b2c843298f821da5e9abc31c5660c300623ccd91 \
             -Dsonar.python.coverage.reportPaths=coverage.xml
-        '''
-        
-        // Wait for scan to complete
-        sh '''
-          # Simple pause to allow SonarQube to process results
           echo "Waiting for SonarQube analysis to complete..."
           sleep 15
-          
-          # Note: In a real production environment, you would want to check the quality gate status
-          # but for this assessment, we're focusing on getting the scan working
           echo "SonarQube analysis completed"
         '''
       }
@@ -82,13 +60,9 @@ EOF
     stage('Security') {
       steps {
         script {
-          // Use Trivy via Docker CLI image
           withDockerContainer('docker:24.0.9-cli') {
-            // Ensure we scan the exact image built earlier
-            def imageTag = "ghcr.io/your-org/books-api:${env.BUILD_NUMBER}"
-            sh "docker pull ${imageTag}"
-
-            // Run Trivy scan
+            def image = "${env.REGISTRY}:${env.IMAGE_TAG}"
+            sh "docker pull ${image}"
             sh """
               docker run --rm \\
                 -v /var/run/docker.sock:/var/run/docker.sock \\
@@ -96,7 +70,7 @@ EOF
                   --exit-code 1 \\
                   --severity HIGH,CRITICAL \\
                   --ignore-unfixed \\
-                  ${imageTag}
+                  ${image}
             """
           }
         }
@@ -107,18 +81,15 @@ EOF
         }
       }
     }
-
-
     
     stage('Integration') {
       steps {
         sh '''
-          # Create docker-compose test file
           cat > docker-compose.test.yml << EOF
 version: '3'
 services:
   api:
-    image: ${IMAGE_REPO}:${IMAGE_TAG}
+    image: ${REGISTRY}:${IMAGE_TAG}
     ports:
       - "5000:5000"
   test:
@@ -127,8 +98,6 @@ services:
     depends_on:
       - api
 EOF
-          
-          # Run integration test
           docker-compose -f docker-compose.test.yml up --abort-on-container-exit
           docker-compose -f docker-compose.test.yml down
         '''
@@ -143,8 +112,8 @@ EOF
           passwordVariable: 'GH_PAT'
         )]) {
           sh '''
-            echo $GH_PAT | docker login ghcr.io -u $GH_USER --password-stdin
-            docker push $IMAGE_REPO:$IMAGE_TAG
+            echo $GH_PAT | docker login ghcr.io -u $GH_USER_CRED --password-stdin
+            docker push $REGISTRY:$IMAGE_TAG
           '''
         }
       }
@@ -153,7 +122,6 @@ EOF
     stage('Monitoring') {
       steps {
         sh '''
-          # Create Prometheus configuration
           cat > prometheus.yml << EOF
 global:
   scrape_interval: 15s
@@ -163,30 +131,15 @@ scrape_configs:
     static_configs:
       - targets: ['localhost:5000']
 EOF
-          
-          # Log monitoring setup
-          echo "Monitoring configuration prepared for Prometheus"
-          cat prometheus.yml
-          
-          # Demonstrating monitoring setup (in actual deployment you would run Prometheus)
-          echo "Monitoring configuration would be applied in production environment"
+          archiveArtifacts artifacts: 'prometheus.yml', fingerprint: true
         '''
-        
-        // Optional: Archive the monitoring configuration
-        archiveArtifacts artifacts: 'prometheus.yml', fingerprint: true
       }
     }
   }
 
   post { 
-    always { 
-      sh 'docker system prune -af' 
-    }
-    success {
-      echo "Pipeline completed successfully!"
-    }
-    failure {
-      echo "Pipeline failed!"
-    }
+    always { sh 'docker system prune -af' }
+    success { echo "Pipeline completed successfully!" }
+    failure { echo "Pipeline failed!" }
   }
 }
