@@ -7,7 +7,8 @@ pipeline {
   }
 
   environment {
-    IMAGE_REPO = "ghcr.io/${env.GITHUB_ACTOR.toLowerCase()}/books-api"
+    GH_USER    = 'bensaviofernandez'          //  <-- change to your GitHub user
+    IMAGE_REPO = "ghcr.io/${GH_USER}/books-api"
     IMAGE_TAG  = "${env.BUILD_NUMBER}"
   }
 
@@ -17,12 +18,11 @@ pipeline {
         sh 'docker build -t $IMAGE_REPO:$IMAGE_TAG .'
       }
     }
-
     stage('Push image') {
       steps {
         withCredentials([usernamePassword(
           credentialsId: 'github-creds',
-          usernameVariable: 'GH_USER',
+          usernameVariable: 'GH_USER_CRED',
           passwordVariable: 'GH_PAT'
         )]) {
           sh '''
@@ -34,7 +34,5 @@ pipeline {
     }
   }
 
-  post {
-    always { sh 'docker system prune -af' }   // keep Jenkins disk light
-  }
+  post { always { sh 'docker system prune -af' } }
 }
