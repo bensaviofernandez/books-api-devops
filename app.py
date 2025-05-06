@@ -2,7 +2,6 @@ from flask import Flask, request, jsonify
 import sqlite3
 import os
 
-
 # Init app
 app = Flask(__name__)
 
@@ -12,22 +11,63 @@ def dict_factory(cursor, row):
         d[col[0]] = row[idx]
     return d
 
-# Flask maps HTTP requests to Python functions.
-# The process of mapping URLs to functions is called routing.
+# Original home route
 @app.route('/', methods=['GET'])
 def home():
     return "<h1>Distant Reading Archive</h1><p>This is a prototype API</p>"
 
-# A route to return all of available entries i our catalog.
+# Test-compatible routes
+@app.route('/books', methods=['GET'])
+def get_all_books():
+    db_path = os.path.join('db', 'books.db')    
+    conn = sqlite3.connect(db_path)
+    conn.row_factory = dict_factory
+    cur = conn.cursor()
+    all_books = cur.execute('SELECT * FROM books;').fetchall()
+    return jsonify(all_books)
+
+@app.route('/books/<int:book_id>', methods=['GET'])
+def get_book_by_id(book_id):
+    db_path = os.path.join('db', 'books.db')    
+    conn = sqlite3.connect(db_path)
+    conn.row_factory = dict_factory
+    cur = conn.cursor()
+    book = cur.execute('SELECT * FROM books WHERE id=?;', [book_id]).fetchone()
+    
+    if book:
+        return jsonify(book)
+    else:
+        return jsonify({"error": "Book not found"}), 404
+
+@app.route('/books', methods=['POST'])
+def create_book():
+    if not request.is_json:
+        return "<p>The content isn't of type JSON</p>", 400
+
+    content = request.get_json()
+    title = content.get('title')
+    author = content.get('author')
+    published = content.get('published', '')
+    first_sentence = content.get('first_sentence', '')
+
+    db_path = os.path.join('db', 'books.db')    
+    conn = sqlite3.connect(db_path)
+    query = 'INSERT INTO books (title, author, published, first_sentence) VALUES (?, ?, ?, ?);'
+
+    cur = conn.cursor()
+    cur.execute(query, (title, author, published, first_sentence))
+    conn.commit()
+    
+    return jsonify(content), 201
+
+# Original API routes can be kept for backward compatibility
 @app.route('/api/v2/resources/books/all', methods=['GET'])
 def api_all():
     db_path = os.path.join('db', 'books.db')    
     conn = sqlite3.connect(db_path)
-    # returns items from the database as dictionaries rather than lists
     conn.row_factory = dict_factory
     cur = conn.cursor()
     all_books = cur.execute('SELECT * FROM books;').fetchall()
-
     return jsonify(all_books)
 
 @app.errorhandler(404)
@@ -73,29 +113,24 @@ def api_filter():
 
 @app.route('/api/v2/resources/books', methods=['POST'])
 def add_book():
-    
-    # Receives the data in JSON format in a HTTP POST request
     if not request.is_json:
-        return "<p>The content isn't of type JSON<\p>"
+        return "<p>The content isn't of type JSON</p>", 400
 
     content = request.get_json()
     title = content.get('title')
     author = content.get('author')
-    published = content.get('published')
-    first_sentence = content.get('first_sentence')
+    published = content.get('published', '')
+    first_sentence = content.get('first_sentence', '')
 
-    # Save the data in db
     db_path = os.path.join('db', 'books.db')    
     conn = sqlite3.connect(db_path)
-    query = f'INSERT INTO books (title, author, published, first_sentence) \
-              VALUES ("{title}", "{author}", "{published}", "{first_sentence}");'
+    query = 'INSERT INTO books (title, author, published, first_sentence) VALUES (?, ?, ?, ?);'
 
     cur = conn.cursor()
-    cur.execute(query)
+    cur.execute(query, (title, author, published, first_sentence))
     conn.commit()
     
-    return jsonify(request.get_json())
-
+    return jsonify(content)
 
 # A method that runs the application server.
 if __name__ == "__main__":
