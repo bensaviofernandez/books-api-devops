@@ -2,7 +2,7 @@ pipeline {
   agent {
     docker {
       image 'docker:24.0.9-cli'
-      args  '''
+      args '''
         --entrypoint="" \
         --user root \
         -v /var/run/docker.sock:/var/run/docker.sock
@@ -20,7 +20,7 @@ pipeline {
     stage('Bootstrap Tools') {
       steps {
         // Install curl so health-check commands work
-        sh 'apt-get update && apt-get install -y curl'
+        sh 'apk update && apk add --no-cache curl'
       }
     }
 
@@ -72,18 +72,15 @@ EOF
       steps {
         script {
           def image = "${env.REGISTRY}:${env.IMAGE_TAG}"
-          def trivyStatus = sh(
-            script: """
-              docker run --rm \\
-                -v /var/run/docker.sock:/var/run/docker.sock \\
-                aquasec/trivy:latest image \\
-                  --exit-code 1 \\
-                  --severity HIGH,CRITICAL \\
-                  --ignore-unfixed \\
-                  ${image}
-            """,
-            returnStatus: true
-          )
+          def trivyStatus = sh(script: '''
+            docker run --rm \
+              -v /var/run/docker.sock:/var/run/docker.sock \
+              aquasec/trivy:latest image \
+                --exit-code 1 \
+                --severity HIGH,CRITICAL \
+                --ignore-unfixed \
+                ${image}
+          ''', returnStatus: true)
           if (trivyStatus != 0) {
             unstable("⚠️ HIGH/CRITICAL vulnerabilities detected by Trivy")
           }
@@ -120,10 +117,7 @@ EOF
     stage('Push') {
       steps {
         withCredentials([usernamePassword(
-          credentialsId: 'github-creds',
-          usernameVariable: 'GH_USER_CRED',
-          passwordVariable: 'GH_PAT'
-        )]) {
+          credentialsId: 'github-creds', usernameVariable: 'GH_USER_CRED', passwordVariable: 'GH_PAT')]) {
           sh '''
             echo $GH_PAT | docker login ghcr.io -u $GH_USER_CRED --password-stdin
             docker push $REGISTRY:$IMAGE_TAG
@@ -135,15 +129,31 @@ EOF
     stage('Deploy (Staging)') {
       steps {
         sh '''
-          # Bring up staging services with healthchecks
+          # Write a minimal compose file for staging
+          cat > docker-compose.staging.yml <<EOF
+version: '3.8'
+services:
+  books-api:
+    image: ${REGISTRY}:${IMAGE_TAG}
+    ports:
+      - "4000:5000"
+EOF
+
+          # Launch the container
           docker-compose -f docker-compose.staging.yml up -d
-          # Wait for the container to report healthy
-          CONTAINER_ID=$(docker-compose -f docker-compose.staging.yml ps -q books-api)
-          echo "Waiting for books-api container $CONTAINER_ID to become healthy..."
-          until [ "$(docker inspect --format='{{.State.Health.Status}}' $CONTAINER_ID)" = "healthy" ]; do
-            sleep 5
-          done
-          echo "✅ Staging is healthy and live on http://localhost:4000/books"
+
+          # Give the API time to initialize
+          echo "Waiting 15s for the API to become ready…"
+          sleep 15
+
+          # Smoke-test endpoint
+          if curl -f http://localhost:4000/books; then
+            echo "✅ Staging is live on http://localhost:4000/books"
+          else
+            echo "❌ Staging failed to respond on port 4000"
+            docker-compose -f docker-compose.staging.yml logs
+            exit 1
+          fi
         '''
       }
       post {
@@ -198,7 +208,7 @@ EOF
     }
   }
 
-  post { 
+  post {
     always { sh 'docker system prune -af' }
     success { echo "Pipeline completed successfully!" }
     failure { echo "Pipeline failed!" }
