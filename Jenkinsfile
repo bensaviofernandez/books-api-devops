@@ -17,6 +17,13 @@ pipeline {
   }
 
   stages {
+    stage('Bootstrap Tools') {
+      steps {
+        // Install curl so health-check commands work
+        sh 'apk update && apk add --no-cache curl'
+      }
+    }
+
     stage('Build') {
       steps {
         sh 'docker build -t $REGISTRY:$IMAGE_TAG .'
@@ -129,23 +136,9 @@ EOF
     stage('Deploy (Staging)') {
       steps {
         sh '''
-          cat > docker-compose.staging.yml <<EOF
-version: '3.8'
-services:
-  books-api:
-    image: ${REGISTRY}:${IMAGE_TAG}
-    ports:
-      - "4000:5000"
-EOF
-
-          # bring up the service
           docker-compose -f docker-compose.staging.yml up -d
-
-          # wait a few seconds for Flask to start
           echo "Waiting 15s for the API to become ready…"
           sleep 15
-
-          # verify via host port
           if curl -f http://localhost:4000/books; then
             echo "✅ Staging is live on http://localhost:4000/books"
           else
