@@ -108,8 +108,8 @@ services:
     depends_on:
       - api
 EOF
-          docker-compose -f docker-compose.test.yml up --abort-on-container-exit
-          docker-compose -f docker-compose.test.yml down
+          docker-compose -f docker-compose.test.yml up --abort-on-container-exit --remove-orphans
+          docker-compose -f docker-compose.test.yml down --remove-orphans
         '''
       }
     }
@@ -129,7 +129,10 @@ EOF
     stage('Deploy (Staging)') {
       steps {
         sh '''
-          # Write a minimal compose file for staging
+          # Clean any old staging resources
+          docker-compose -f docker-compose.staging.yml down --remove-orphans || true
+
+          # Write staging compose with test service
           cat > docker-compose.staging.yml <<EOF
 version: '3.8'
 services:
@@ -138,26 +141,24 @@ services:
     ports:
       - "4000:5000"
     command: flask run --host=0.0.0.0 --port=5000
+  smoke-test:
+    image: curlimages/curl:latest
+    depends_on:
+      - books-api
+    command: /bin/sh -c "sleep 15 && curl -f http://books-api:5000/books"
 EOF
 
-          # Launch the service
-          docker-compose -f docker-compose.staging.yml up -d
+          # Launch staging and smoke-test
+          docker-compose -f docker-compose.staging.yml up --abort-on-container-exit
+          testStatus=$?
+          docker-compose -f docker-compose.staging.yml down --remove-orphans
 
-          # Give the API time to initialize
-          echo "Waiting 15s for the API to become ready…"
-          sleep 15
-
-          # Smoke-test endpoint from host
-          if curl -f http://localhost:4000/books; then
-            echo "✅ Staging is live on http://localhost:4000/books"
-          else
+          if [ $testStatus -ne 0 ]; then
             echo "❌ Staging smoke test failed"
-            docker-compose -f docker-compose.staging.yml logs
             exit 1
+          else
+            echo "✅ Staging is live on http://localhost:4000/books"
           fi
-
-          # Tear down
-          docker-compose -f docker-compose.staging.yml down
         '''
       }
       post {
