@@ -137,6 +137,7 @@ services:
     image: ${REGISTRY}:${IMAGE_TAG}
     ports:
       - "4000:5000"
+    command: flask run --host=0.0.0.0 --port=5000
 EOF
 
           # Bring up the service
