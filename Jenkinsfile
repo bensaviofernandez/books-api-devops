@@ -146,11 +146,11 @@ EOF
           echo "Waiting 15s for the API to become ready…"
           sleep 15
 
-          # Smoke-test endpoint
-          if curl -f http://localhost:4000/books; then
-            echo "✅ Staging is live on http://localhost:4000/books"
+          # Smoke-test endpoint on the host
+          if curl -f http://host.docker.internal:4000/books; then
+            echo "✅ Staging is live on host.docker.internal:4000/books"
           else
-            echo "❌ Staging failed to respond on port 4000"
+            echo "❌ Staging failed to respond on host.docker.internal:4000/books"
             docker-compose -f docker-compose.staging.yml logs
             exit 1
           fi
