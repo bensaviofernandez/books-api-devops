@@ -749,6 +749,7 @@ pipeline {
         archiveArtifacts artifacts: 'prometheus.yml,rules/*.yml,docker-compose-monitoring.yml,grafana/provisioning/**/*,grafana/dashboards/**/*,metrics.py', fingerprint: true
       }
     }
+  }
 
 
   post {
