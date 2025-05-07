@@ -169,25 +169,28 @@ EOF
 
     stage('Release (Prod)') {
       steps {
-        checkout scm
-        sh '''
-          docker-compose -f docker-compose.prod.yml pull
-          docker-compose -f docker-compose.prod.yml up -d
-          sleep 10
-          if curl -f http://localhost:5000/health; then
-            echo '✅ Production is live on port 5000'
-          else
-            echo '❌ Production failed to respond'
-            docker-compose -f docker-compose.prod.yml logs
-            exit 1
-          fi
-        '''
-      }
-      post {
-        success { echo '🌟 Release (Prod) succeeded!' }
-        failure { echo '💥 Release (Prod) failed — see logs above.' }
+        script {
+          sh '''
+            # pull & start the prod stack
+            docker-compose -f docker-compose.prod.yml pull
+            docker-compose -f docker-compose.prod.yml up -d
+
+            # give Gunicorn a few seconds to boot
+            sleep 10
+
+            # run the health check from inside the books-api container
+            if docker-compose -f docker-compose.prod.yml exec -T books-api curl -f http://localhost:5000/health; then
+              echo "✅ Production is live on port 5000"
+            else
+              echo "❌ Production failed to respond"
+              docker-compose -f docker-compose.prod.yml logs
+              exit 1
+            fi
+          '''
+        }
       }
     }
+
 
     stage('Monitoring') {
       steps {
