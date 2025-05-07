@@ -2,7 +2,11 @@ pipeline {
   agent {
     docker {
       image 'docker:24.0.9-cli'
-      args  '-v /var/run/docker.sock:/var/run/docker.sock'
+      args  '''
+        --entrypoint="" \
+        --user root \
+        -v /var/run/docker.sock:/var/run/docker.sock
+      '''
     }
   }
 
@@ -126,13 +130,13 @@ EOF
       steps {
         sh '''
           cat > docker-compose.staging.yml <<EOF
-    version: '3.8'
-    services:
-      books-api:
-        image: ${REGISTRY}:${IMAGE_TAG}
-        ports:
-          - "4000:5000"
-    EOF
+version: '3.8'
+services:
+  books-api:
+    image: ${REGISTRY}:${IMAGE_TAG}
+    ports:
+      - "4000:5000"
+EOF
 
           # bring up the service
           docker-compose -f docker-compose.staging.yml up -d
@@ -161,8 +165,28 @@ EOF
       }
     }
 
+    stage('Release (Prod)') {
+      steps {
+        checkout scm
+        sh '''
+          docker-compose -f docker-compose.prod.yml pull
+          docker-compose -f docker-compose.prod.yml up -d
+          sleep 10
+          if curl -f http://localhost:5000/health; then
+            echo '✅ Production is live on port 5000'
+          else
+            echo '❌ Production failed to respond'
+            docker-compose -f docker-compose.prod.yml logs
+            exit 1
+          fi
+        '''
+      }
+      post {
+        success { echo '🌟 Release (Prod) succeeded!' }
+        failure { echo '💥 Release (Prod) failed — see logs above.' }
+      }
+    }
 
-    
     stage('Monitoring') {
       steps {
         sh '''
