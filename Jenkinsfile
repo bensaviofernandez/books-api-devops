@@ -20,7 +20,7 @@ pipeline {
     stage('Bootstrap Tools') {
       steps {
         // Install curl so health-check commands work
-        sh 'apk update && apk add --no-cache curl'
+        sh 'apt-get update && apt-get install -y curl'
       }
     }
 
@@ -100,7 +100,6 @@ EOF
       steps {
         sh '''
           cat > docker-compose.test.yml << EOF
-version: '3'
 services:
   api:
     image: ${REGISTRY}:${IMAGE_TAG}
@@ -136,16 +135,15 @@ EOF
     stage('Deploy (Staging)') {
       steps {
         sh '''
+          # Bring up staging services with healthchecks
           docker-compose -f docker-compose.staging.yml up -d
-          echo "Waiting 15s for the API to become ready…"
-          sleep 15
-          if curl -f http://localhost:4000/books; then
-            echo "✅ Staging is live on http://localhost:4000/books"
-          else
-            echo "❌ Staging failed to respond on port 4000"
-            docker-compose -f docker-compose.staging.yml logs
-            exit 1
-          fi
+          # Wait for the container to report healthy
+          CONTAINER_ID=$(docker-compose -f docker-compose.staging.yml ps -q books-api)
+          echo "Waiting for books-api container $CONTAINER_ID to become healthy..."
+          until [ "$(docker inspect --format='{{.State.Health.Status}}' $CONTAINER_ID)" = "healthy" ]; do
+            sleep 5
+          done
+          echo "✅ Staging is healthy and live on http://localhost:4000/books"
         '''
       }
       post {
