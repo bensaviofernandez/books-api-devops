@@ -140,21 +140,21 @@ services:
     command: flask run --host=0.0.0.0 --port=5000
 EOF
 
-          # Bring up the service
+          # Launch the service
           docker-compose -f docker-compose.staging.yml up -d
 
-          # Wait for initialization
-          echo "Waiting 15s for the API to initialize..."
+          # Give the API time to initialize
+          echo "Waiting 15s for the API to become ready…"
           sleep 15
 
-          # Run smoke-test inside container network
-          docker-compose -f docker-compose.staging.yml exec -T books-api \
-            curl -f http://localhost:5000/books || {
-              echo "❌ Staging smoke test failed"
-              docker-compose -f docker-compose.staging.yml logs
-              exit 1
-            }
-          echo "✅ Staging is live"
+          # Smoke-test endpoint from host
+          if curl -f http://localhost:4000/books; then
+            echo "✅ Staging is live on http://localhost:4000/books"
+          else
+            echo "❌ Staging smoke test failed"
+            docker-compose -f docker-compose.staging.yml logs
+            exit 1
+          fi
 
           # Tear down
           docker-compose -f docker-compose.staging.yml down
