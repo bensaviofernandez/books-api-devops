@@ -139,30 +139,29 @@ services:
       - "4000:5000"
 EOF
 
-          # Launch the container
+          # Bring up the service
           docker-compose -f docker-compose.staging.yml up -d
 
-          # Give the API time to initialize
-          echo "Waiting 15s for the API to become ready…"
+          # Wait for initialization
+          echo "Waiting 15s for the API to initialize..."
           sleep 15
 
-          # Smoke-test endpoint on the host
-          if curl -f http://host.docker.internal:4000/books; then
-            echo "✅ Staging is live on host.docker.internal:4000/books"
-          else
-            echo "❌ Staging failed to respond on host.docker.internal:4000/books"
-            docker-compose -f docker-compose.staging.yml logs
-            exit 1
-          fi
+          # Run smoke-test inside container network
+          docker-compose -f docker-compose.staging.yml exec -T books-api \
+            curl -f http://localhost:5000/books || {
+              echo "❌ Staging smoke test failed"
+              docker-compose -f docker-compose.staging.yml logs
+              exit 1
+            }
+          echo "✅ Staging is live"
+
+          # Tear down
+          docker-compose -f docker-compose.staging.yml down
         '''
       }
       post {
-        success {
-          echo "🌟 Deploy (Staging) succeeded!"
-        }
-        failure {
-          echo "💥 Deploy (Staging) failed!"
-        }
+        success { echo "🌟 Deploy (Staging) succeeded!" }
+        failure { echo "💥 Deploy (Staging) failed!" }
       }
     }
 
