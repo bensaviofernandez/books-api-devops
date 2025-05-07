@@ -168,74 +168,114 @@ EOF
     }
 
     stage('Release (Prod)') {
-        when {
-            anyOf {
-                branch 'main'
-                branch 'master'  // Including both for flexibility
-            }
+      when {
+        anyOf {
+          branch 'main'
+          branch 'master' 
         }
-        steps {
-            // Manual confirmation before proceeding to production
-            input message: 'Deploy to Production?', ok: 'Approve'
-            
-            // Tag image as production
-            script {
-                sh """
-                    docker tag ${REGISTRY}:${IMAGE_TAG} ${REGISTRY}:production
-                    docker push ${REGISTRY}:production
-                """
-            }
-            
-            // Deploy to production environment (port 5000)
-            sh '''
-                # Install jq for JSON formatting (if needed)
-                apk add --no-cache jq
-                
-                # Create production docker-compose file with the right configurations
-                cat > docker-compose.prod.yml << EOF
-    version: '3.8'
-    services:
-      books-api:
-        image: ${REGISTRY}:production
-        container_name: books-api-production
-        ports:
-          - "5000:5000"
-        environment:
-          - FLASK_ENV=production
-          - LOG_LEVEL=WARNING
-        restart: always
-        healthcheck:
-          test: ["CMD", "curl", "-f", "http://localhost:5000/books"]
-          interval: 30s
-          timeout: 10s
-          retries: 3
-          start_period: 5s
-    EOF
-                
-                # Clean any existing production deployment
-                docker-compose -f docker-compose.prod.yml down --remove-orphans || true
-                
-                # Deploy to production
-                docker-compose -f docker-compose.prod.yml up -d
-                
-                # Wait for container to be healthy
-                echo "Waiting for production container to be healthy..."
-                sleep 10
-                
-                # Verify deployment with curl
-                curl -s http://localhost:5000/books | jq || echo "JSON parsing failed, but deployment completed"
-            '''
+      }
+      steps {
+        // Manual confirmation before proceeding to production
+        input message: 'Deploy to Production?', ok: 'Approve'
+        
+        // Tag image as production
+        script {
+          sh """
+            docker tag ${REGISTRY}:${IMAGE_TAG} ${REGISTRY}:production
+            docker push ${REGISTRY}:production
+          """
         }
-        post {
-            success {
-                echo "🚀 Production deployment successful!"
-            }
-            failure {
-                echo "❌ Production deployment failed!"
-            }
-        }
-    }
+        
+        // Deploy to production environment with enhanced troubleshooting
+        sh '''
+          # Install jq and network tools for diagnostics
+          apk add --no-cache jq net-tools
 
+          # Create production docker-compose file with the right configurations
+          cat > docker-compose.prod.yml << EOF
+version: '3.8'
+services:
+  books-api:
+    image: ${REGISTRY}:production
+    container_name: books-api-production
+    ports:
+      - "5000:5000"
+    environment:
+      - FLASK_ENV=production
+      - LOG_LEVEL=WARNING
+    restart: always
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/books"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 5s
+EOF
+          
+          # Show the generated file for debugging
+          echo "=== Generated docker-compose.prod.yml ==="
+          cat docker-compose.prod.yml
+          echo "========================================="
+          
+          # Check if something is already using port 5000
+          echo "=== Checking port 5000 usage ==="
+          netstat -tuln | grep 5000 || echo "Port 5000 is available"
+          
+          # List existing containers for reference
+          echo "=== Existing containers ==="
+          docker ps -a
+          
+          # Stop any existing container with the same name
+          echo "=== Stopping existing production container (if any) ==="
+          docker stop books-api-production || true
+          docker rm books-api-production || true
+          
+          # Deploy with more verbose output
+          echo "=== Deploying production container ==="
+          docker-compose -f docker-compose.prod.yml up -d
+          
+          # Check if container started
+          echo "=== Container status after deployment ==="
+          docker ps -a | grep books-api-production || echo "No container found!"
+          
+          # Check container logs if it exists
+          echo "=== Container logs (if any) ==="
+          docker logs books-api-production || echo "No container logs available"
+          
+          # Wait for container to start properly
+          echo "=== Waiting for container to stabilize ==="
+          sleep 10
+          
+          # Check again
+          echo "=== Container status after waiting ==="
+          docker ps | grep books-api-production || echo "Container not running!"
+          
+          # Try simpler approach if compose doesn't work
+          if ! docker ps | grep -q books-api-production; then
+            echo "=== Trying direct container run ==="
+            docker run -d --name books-api-direct -p 5000:5000 ${REGISTRY}:production
+            sleep 5
+            docker ps | grep books-api-direct || echo "Direct container also failed"
+          fi
+          
+          # Try accessing the API
+          echo "=== Attempting to access API ==="
+          curl -v http://localhost:5000/books || echo "Failed to access API"
+          
+          # Final container check
+          echo "=== Final container status ==="
+          docker ps
+        '''
+      }
+      post {
+        success {
+          echo "🚀 Production deployment successful!"
+        }
+        failure {
+          echo "❌ Production deployment failed!"
+        }
+      }
+    }
 
     stage('Monitoring') {
       steps {
