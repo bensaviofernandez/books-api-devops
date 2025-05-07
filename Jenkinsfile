@@ -168,28 +168,65 @@ EOF
     }
 
     stage('Release (Prod)') {
-      steps {
-        script {
-          sh '''
-            # pull & start the prod stack
-            docker-compose -f docker-compose.prod.yml pull
-            docker-compose -f docker-compose.prod.yml up -d
-
-            # give Gunicorn a few seconds to boot
-            sleep 10
-
-            # run the health check from inside the books-api container
-            if docker-compose -f docker-compose.prod.yml exec -T books-api curl -f http://localhost:5000/health; then
-              echo "✅ Production is live on port 5000"
-            else
-              echo "❌ Production failed to respond"
-              docker-compose -f docker-compose.prod.yml logs
-              exit 1
-            fi
-          '''
+        when {
+            branch 'main'  // Only run on main branch
         }
-      }
+        steps {
+            // Manual confirmation before proceeding to production
+            input message: 'Deploy to Production?', ok: 'Approve'
+            
+            // Tag image as production
+            script {
+                sh """
+                    docker tag ghcr.io/${env.GITHUB_USER}/books-api:${env.BUILD_NUMBER} ghcr.io/${env.GITHUB_USER}/books-api:production
+                    docker push ghcr.io/${env.GITHUB_USER}/books-api:production
+                """
+            }
+            
+            // Deploy to production environment (port 5000)
+            sh '''
+                # Create production docker-compose file with the right configurations
+                cat > docker-compose.prod.yml << EOF
+    version: '3.8'
+    services:
+      books-api:
+        image: ghcr.io/${GITHUB_USER}/books-api:production
+        container_name: books-api-production
+        ports:
+          - "5000:5000"
+        environment:
+          - FLASK_ENV=production
+          - LOG_LEVEL=WARNING
+        restart: always
+        healthcheck:
+          test: ["CMD", "curl", "-f", "http://localhost:5000/books"]
+          interval: 30s
+          timeout: 10s
+          retries: 3
+          start_period: 5s
+    EOF
+                
+                # Deploy to production
+                docker-compose -f docker-compose.prod.yml up -d --build
+                
+                # Wait for container to be healthy
+                echo "Waiting for production container to be healthy..."
+                sleep 10
+                
+                # Verify deployment
+                curl -s http://localhost:5000/books | jq
+            '''
+        }
+        post {
+            success {
+                echo "🚀 Production deployment successful!"
+            }
+            failure {
+                echo "❌ Production deployment failed!"
+            }
+        }
     }
+
 
 
     stage('Monitoring') {
