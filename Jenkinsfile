@@ -88,16 +88,14 @@ pipeline {
       }
     }
     
-    stage('Push to Registry') {
+    stage('Push') {
       steps {
-        script {
-          // Login to GitHub Registry (assumes credentials are already available)
+        withCredentials([usernamePassword(
+          credentialsId: 'github-creds', usernameVariable: 'GH_USER_CRED', passwordVariable: 'GH_PAT')]) {
           sh '''
-            # Tag the production image for easier reference
+            echo $GH_PAT | docker login ghcr.io -u $GH_USER_CRED --password-stdin
             docker tag ${REGISTRY}:${IMAGE_TAG} ${REGISTRY}:production
             docker tag ${REGISTRY}:test-${IMAGE_TAG} ${REGISTRY}:test-latest
-            
-            # Push all images
             docker push ${REGISTRY}:${IMAGE_TAG}
             docker push ${REGISTRY}:production
             docker push ${REGISTRY}:test-${IMAGE_TAG}
