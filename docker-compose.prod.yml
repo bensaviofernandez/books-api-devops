@@ -3,10 +3,10 @@ version: '3.8'
 services:
   books-api:
     image: ${REGISTRY}:${IMAGE_TAG}
-    ports:
-      - "5000:5000"
     environment:
       FLASK_ENV: production
-    command: flask run --host=0.0.0.0 --port=5000
-
-  # (optional) add any other prod services here, e.g. a database, redis, etc.
+    # map container’s port 5000 back to the host so Jenkins can curl it
+    ports:
+      - "5000:5000"
+    # in prod you’ll want Gunicorn rather than the Flask dev server:
+    command: gunicorn app:app -w 4 -b 0.0.0.0:5000
