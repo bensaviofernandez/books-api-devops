@@ -26,20 +26,19 @@ pipeline {
 
     stage('Build') {
       steps {
-        sh 'docker build -t $REGISTRY:$IMAGE_TAG .'
+        // Build both test and production images using multi-stage Dockerfile
+        sh '''
+          docker build --target test -t ${REGISTRY}:test-${IMAGE_TAG} .
+          docker build --target production -t ${REGISTRY}:${IMAGE_TAG} .
+        '''
       }
     }
     
     stage('Test') {
       steps {
+        // Use the test image directly since it's already built with test tools
         sh '''
-          cat > Dockerfile.test << EOF
-FROM $REGISTRY:$IMAGE_TAG
-RUN pip install pytest pytest-cov
-WORKDIR /app
-EOF
-          docker build -t $REGISTRY:test-$IMAGE_TAG -f Dockerfile.test .
-          docker run --name books-api-test $REGISTRY:test-$IMAGE_TAG \
+          docker run --name books-api-test ${REGISTRY}:test-${IMAGE_TAG} \
             pytest -v --junitxml=test-results.xml --cov=app --cov-report=xml
           docker cp books-api-test:/app/test-results.xml .
           docker cp books-api-test:/app/coverage.xml .
@@ -120,7 +119,9 @@ EOF
           credentialsId: 'github-creds', usernameVariable: 'GH_USER_CRED', passwordVariable: 'GH_PAT')]) {
           sh '''
             echo $GH_PAT | docker login ghcr.io -u $GH_USER_CRED --password-stdin
-            docker push $REGISTRY:$IMAGE_TAG
+            docker push ${REGISTRY}:${IMAGE_TAG}
+            # Also push the test image if you want to reuse it
+            docker push ${REGISTRY}:test-${IMAGE_TAG}
           '''
         }
       }
@@ -140,7 +141,7 @@ services:
     image: ${REGISTRY}:${IMAGE_TAG}
     ports:
       - "4000:5000"
-    command: flask run --host=0.0.0.0 --port=5000
+    # No command override needed anymore since the Dockerfile has proper CMD
   smoke-test:
     image: curlimages/curl:latest
     depends_on:
@@ -250,21 +251,13 @@ EOF
           echo "=== Container status after waiting ==="
           docker ps | grep books-api-production || echo "Container not running!"
           
-          # Try simpler approach if compose doesn't work
-          if ! docker ps | grep -q books-api-production; then
-            echo "=== Trying direct container run ==="
-            docker run -d --name books-api-direct -p 5000:5000 ${REGISTRY}:production
-            sleep 5
-            docker ps | grep books-api-direct || echo "Direct container also failed"
-          fi
+          # Final container check
+          echo "=== Final container status ==="
+          docker ps
           
           # Try accessing the API
           echo "=== Attempting to access API ==="
           curl -v http://localhost:5000/books || echo "Failed to access API"
-          
-          # Final container check
-          echo "=== Final container status ==="
-          docker ps
         '''
       }
       post {
