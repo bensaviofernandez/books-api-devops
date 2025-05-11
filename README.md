@@ -58,7 +58,7 @@ The Flask app exposes Prometheus metrics at `/metrics`:
 * `books_api_request_duration_seconds`
 * `books_api_books_count`
 
-Alert rules live in `monitoring/rules/books_api_alerts.yml`.
+
 
 
 
