@@ -1,7 +1,7 @@
 # Books API – DevSecOps Pipeline
 
 [![Build](https://img.shields.io/badge/build-passing-brightgreen.svg)](https://jenkins.example.com/job/books-api-pipeline/) 
-[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
 
 > **Seven‑stage Jenkins pipeline with security scanning & live monitoring**
 
